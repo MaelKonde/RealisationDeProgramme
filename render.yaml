@@ -13,7 +13,7 @@
 services:
   # ------------------------------------------------------------------------
   # 1) API Flask (creer_bdd.py / alimenter_bdd.py ne tournent pas ici :
-  #    bdd.db est déjà rempli et committé directement dans le dépôt)
+  #    bdd.db (~1 Go) est téléchargé depuis Google Drive au moment du build)
   # ------------------------------------------------------------------------
   - type: web
     name: veille-scientifique-api
@@ -27,6 +27,8 @@ services:
     envVars:
       - key: PYTHON_VERSION
         value: 3.11.9
+      - key: GDRIVE_DB_FILE_ID
+        value: 120wyznKkDMfXWVANr_f8he4t2AMGhhVX
 
   # ------------------------------------------------------------------------
   # 2) Front-end statique (index.html + style.css + app.js + config.js + data.js)
@@ -35,8 +37,8 @@ services:
   - type: web
     name: veille-scientifique-front
     runtime: static
-    buildCommand: ""
-    staticPublishPath: ./public
+    buildCommand: "echo 'Site statique - aucun build necessaire'"
+    staticPublishPath: ./
     autoDeployTrigger: commit
     routes:
       - type: rewrite
