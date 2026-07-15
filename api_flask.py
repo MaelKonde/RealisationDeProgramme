@@ -8,12 +8,30 @@ Description : API Flask pour "Tendances Scientifiques" (nuage de mots par mois,
 import json
 import os
 import sqlite3
+import time
 
 from flask import Flask, jsonify, request
 from flask_cors import CORS
 
 application = Flask(__name__)
 CORS(application)
+
+
+_cache = {}
+CACHE_TTL = 600  # 10 minutes — la base ne change pas entre deux déploiements,
+# donc mettre en cache les endpoints coûteux évite de refaire le même calcul
+# lourd à chaque rechargement de page.
+
+
+def cache_get(cle):
+    entree = _cache.get(cle)
+    if entree and (time.time() - entree[0]) < CACHE_TTL:
+        return entree[1]
+    return None
+
+
+def cache_set(cle, valeur):
+    _cache[cle] = (time.time(), valeur)
 
 
 @application.after_request
@@ -42,10 +60,10 @@ STOPWORDS = {
 
 # Nombre d'articles échantillonnés (les plus cités) pour calculer les nuages
 # de mots / évolutions, plutôt que de scanner toute la base à chaque requête.
-TAILLE_ECHANTILLON_MOIS = 400
-TAILLE_ECHANTILLON_PAYS = 150
-TAILLE_ECHANTILLON_EVOLUTION = 150
-TAILLE_ECHANTILLON_SUGGESTIONS = 300
+TAILLE_ECHANTILLON_MOIS = 250
+TAILLE_ECHANTILLON_PAYS = 100
+TAILLE_ECHANTILLON_EVOLUTION = 100
+TAILLE_ECHANTILLON_SUGGESTIONS = 250
 
 
 def connecter_bdd():
@@ -136,6 +154,11 @@ def api_mots_cles():
     except ValueError:
         limite_mots = 40
 
+    cle_cache = f"mots-cles:{mois}:{limite_mots}"
+    en_cache = cache_get(cle_cache)
+    if en_cache is not None:
+        return jsonify(en_cache)
+
     connexion = connecter_bdd()
     curseur = connexion.cursor()
 
@@ -170,11 +193,13 @@ def api_mots_cles():
 
     mots = sorted(compteur.items(), key=lambda item: item[1], reverse=True)[:limite_mots]
 
-    return jsonify({
+    resultat = {
         "mois": mois or "tous",
         "mots": [{"mot": m, "poids": p} for m, p in mots],
         "echantillon": len(lignes),
-    })
+    }
+    cache_set(cle_cache, resultat)
+    return jsonify(resultat)
 
 
 @application.route("/api/pays")
@@ -187,6 +212,11 @@ def api_pays():
         limite_mots = min(max(int(request.args.get("mots_par_pays", 8)), 1), 20)
     except ValueError:
         limite_mots = 8
+
+    cle_cache = f"pays:{limite_pays}:{limite_mots}"
+    en_cache = cache_get(cle_cache)
+    if en_cache is not None:
+        return jsonify(en_cache)
 
     connexion = connecter_bdd()
     curseur = connexion.cursor()
@@ -225,7 +255,9 @@ def api_pays():
         })
 
     connexion.close()
-    return jsonify({"pays": resultat})
+    resultat = {"pays": resultat}
+    cache_set(cle_cache, resultat)
+    return jsonify(resultat)
 
 
 @application.route("/api/evolution")
@@ -322,17 +354,28 @@ def api_articles_top():
         lignes = curseur.fetchall()
 
     articles = []
-    for ligne in lignes:
-        curseur.execute("SELECT nom, pays FROM auteurs WHERE id_article = ?", (ligne["id"],))
-        auteurs = [{"nom": a["nom"], "pays": a["pays"]} for a in curseur.fetchall()]
-        articles.append({
-            "id": ligne["id"],
-            "titre": ligne["titre"],
-            "date": ligne["date"],
-            "langue": ligne["langue"],
-            "citations": ligne["citations"],
-            "auteurs": auteurs,
-        })
+    if lignes:
+        ids = [ligne["id"] for ligne in lignes]
+        marqueurs = ",".join("?" for _ in ids)
+        curseur.execute(f"""
+            SELECT id_article, nom, pays FROM auteurs
+            WHERE id_article IN ({marqueurs})
+        """, ids)
+        auteurs_par_article = {}
+        for ligne_auteur in curseur.fetchall():
+            auteurs_par_article.setdefault(ligne_auteur["id_article"], []).append(
+                {"nom": ligne_auteur["nom"], "pays": ligne_auteur["pays"]}
+            )
+
+        for ligne in lignes:
+            articles.append({
+                "id": ligne["id"],
+                "titre": ligne["titre"],
+                "date": ligne["date"],
+                "langue": ligne["langue"],
+                "citations": ligne["citations"],
+                "auteurs": auteurs_par_article.get(ligne["id"], []),
+            })
 
     connexion.close()
     return jsonify({"articles": articles, "mot": mot or None})
@@ -344,6 +387,11 @@ def api_suggestions():
         limite = min(max(int(request.args.get("limit", 12)), 1), 30)
     except ValueError:
         limite = 12
+
+    cle_cache = f"suggestions:{limite}"
+    en_cache = cache_get(cle_cache)
+    if en_cache is not None:
+        return jsonify(en_cache)
 
     connexion = connecter_bdd()
     curseur = connexion.cursor()
@@ -358,11 +406,17 @@ def api_suggestions():
     connexion.close()
 
     mots = sorted(compteur.items(), key=lambda item: item[1], reverse=True)[:limite]
-    return jsonify({"suggestions": [m for m, _ in mots]})
+    resultat = {"suggestions": [m for m, _ in mots]}
+    cache_set(cle_cache, resultat)
+    return jsonify(resultat)
 
 
 @application.route("/api/stats-globales")
 def api_stats_globales():
+    en_cache = cache_get("stats-globales")
+    if en_cache is not None:
+        return jsonify(en_cache)
+
     connexion = connecter_bdd()
     curseur = connexion.cursor()
 
@@ -381,12 +435,14 @@ def api_stats_globales():
     total_mois = curseur.fetchone()["n"] or 0
 
     connexion.close()
-    return jsonify({
+    resultat = {
         "total_articles": total_articles,
         "total_citations": total_citations,
         "total_pays": total_pays,
         "total_mois": total_mois,
-    })
+    }
+    cache_set("stats-globales", resultat)
+    return jsonify(resultat)
 
 
 if __name__ == "__main__":
