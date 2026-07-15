@@ -3,30 +3,30 @@
 <head>
   <meta charset="UTF-8"/>
   <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
-  <title>Veille Scientifique · arXiv</title>
+  <title>Tendances Scientifiques · arXiv</title>
 
   <!-- Favicon -->
   <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
 
-  <!-- Polices -->
+  <!-- D3.js + TopoJSON pour la carte du monde -->
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/d3/7.8.5/d3.min.js"></script>
+  <script src="https://cdnjs.cloudflare.com/ajax/libs/topojson/3.0.2/topojson.min.js"></script>
   <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,700;0,800;1,700&display=swap" rel="stylesheet"/>
 
   <!-- Styles -->
   <link rel="stylesheet" href="style.css"/>
 </head>
 <body>
+<body>
 <div class="toast" id="toast"></div>
 
 <!-- Header -->
 <header id="header">
   <div class="container header-inner">
-    <div class="logo">
-      <div class="logo-mark">✦</div>
-      <span>Veille</span><em>Scientifique</em>
-    </div>
-    <div style="display:flex;gap:8px;align-items:center;">
+    <a class="logo" href="#" onclick="window.scrollTo({top:0,behavior:'smooth'});return false;"><div class="logo-mark">✦</div><span>Veille</span><em>Scientifique</em></a>
+
+    <div class="header-right">
       <span class="hpill live">● OpenAlex · arXiv</span>
-      <span class="hpill" id="totalBadge">— articles</span>
     </div>
   </div>
 </header>
@@ -37,142 +37,98 @@
   <div class="hero-overlay"></div>
   <canvas id="starCanvas"></canvas>
   <div class="container">
-    <div class="hero-eyebrow">✦ arXiv · OpenAlex · 2025–2026</div>
-    <h1>Explorer la <em>recherche</em><br>scientifique mondiale</h1>
-    <p class="hero-sub">Données collectées via <strong>OpenAlex API</strong> sur arXiv — mois par mois depuis février 2025. Interrogez la base locale ou Semantic Scholar.</p>
-
-    <!-- Mode toggle -->
-    <div class="mode-toggle">
-      <button class="mode-btn active" id="btnModeLocal" onclick="setMode('local')">📂 Fichiers locaux (JSON)</button>
-      <button class="mode-btn" id="btnModeApi" onclick="setMode('api')">🔌 API Semantic Scholar</button>
-    </div>
-
-    <div class="search-area">
-      <div class="search-row">
-        <input type="text" id="searchInput"
-          placeholder="Mots-clés dans les titres (ex: quantum, neural, climate…)"
-          onkeydown="if(event.key==='Enter') doSearch()" />
-        <button class="btn-search" id="btnSearch" onclick="doSearch()">Rechercher →</button>
-      </div>
-
-      <!-- Filtres communs -->
-      <div class="filter-grid" style="margin-bottom:8px;">
-        <span class="filter-label">Filtres :</span>
-        <select id="fPays">
-          <option value="">Tous pays</option>
-          <option value="FR">France</option>
-          <option value="US">États-Unis</option>
-          <option value="CN">Chine</option>
-          <option value="DE">Allemagne</option>
-          <option value="GB">Royaume-Uni</option>
-          <option value="IT">Italie</option>
-          <option value="JP">Japon</option>
-          <option value="ES">Espagne</option>
-          <option value="CH">Suisse</option>
-          <option value="IN">Inde</option>
-        </select>
-        <select id="fLang">
-          <option value="">Toutes langues</option>
-          <option value="en">Anglais</option>
-          <option value="fr">Français</option>
-        </select>
-        <select id="fSort">
-          <option value="citations">Citations ↓</option>
-          <option value="date">Date (récent)</option>
-          <option value="alpha">Alphabétique</option>
-        </select>
-        <select id="fLimit">
-          <option value="20">20 résultats</option>
-          <option value="50">50 résultats</option>
-          <option value="100">100 résultats</option>
-        </select>
-      </div>
-
-      <!-- Mode LOCAL -->
-      <div class="file-mode-area active" id="localModeArea">
-        <div class="load-progress" id="loadProgress"></div>
-        <div id="monthPills" style="display:none;"></div>
-      </div>
-
-      <!-- Mode API : filtres supplémentaires -->
-      <div class="file-mode-area" id="apiModeArea">
-        <div class="filter-grid">
-          <select id="fYear">
-            <option value="">Toutes années</option>
-            <option value="2024">Depuis 2024</option>
-            <option value="2022">Depuis 2022</option>
-            <option value="2020">Depuis 2020</option>
-          </select>
-          <select id="fField">
-            <option value="">Tous domaines</option>
-            <option value="Biology">Biologie</option>
-            <option value="Physics">Physique</option>
-            <option value="Computer Science">Informatique</option>
-            <option value="Chemistry">Chimie</option>
-            <option value="Environmental Science">Environnement</option>
-            <option value="Medicine">Médecine</option>
-          </select>
-        </div>
-      </div>
-    </div>
+    <div class="hero-eyebrow">✦ arXiv · OpenAlex · Fév 2025 → Mai 2026</div>
+    <h1>Mots-clés <em>tendance</em><br>de la recherche mondiale</h1>
+    <p class="hero-sub">Visualisez les sujets scientifiques dominants mois par mois et par pays, extraits de l'index inversé des abstracts arXiv via OpenAlex.</p>
   </div>
 </section>
 
 <!-- Main -->
 <div class="main">
   <div class="container">
-    <div class="stat-strip" id="statStrip" style="display:none;"></div>
-    <div id="results-zone">
-      <div class="state-box">
-        <div class="state-icon">🔭</div>
-        <p>Sélectionne un ou plusieurs mois et lance une recherche pour explorer la base arXiv.</p>
-      </div>
-    </div>
-    <div id="tabs-section" style="display:none;">
-      <div class="tabs-wrapper">
-        <button class="tab-btn active" onclick="switchTab('articles',this)">Articles</button>
-        <button class="tab-btn" onclick="switchTab('stats',this)">Statistiques</button>
-        <button class="tab-btn" onclick="switchTab('auteurs',this)">Auteurs</button>
-        <button class="tab-btn" onclick="switchTab('pays',this)">Pays</button>
-      </div>
 
-      <div id="panel-articles" class="panel active">
-        <div class="result-meta">
-          <div class="result-meta-left">
-            <span class="count-badge" id="countLine"></span>
-            <span class="source-tag" id="sourceTag">OpenAlex · arXiv</span>
-          </div>
-          <button class="btn-outline" onclick="exportCSV()">⬇ Export CSV</button>
+    <!-- Stat strip -->
+    <div class="stat-strip" id="statStrip"></div>
+
+    <!-- ══ PAGE UNIQUE : tout sur une page ══ -->
+
+    <!-- Nuage de mots par mois -->
+    <div class="section-card">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Nuage de mots-clés par mois</div>
+          <div class="section-sub">Mots scientifiques extraits des abstracts · cliquez sur un mot pour tracer son évolution</div>
         </div>
-        <div id="articleList"></div>
       </div>
+      <div class="month-pills" id="monthPills"></div>
+      <div class="cloud-wrap" id="cloudMain"></div>
+    </div>
 
-      <div id="panel-stats" class="panel">
-        <div class="section-title">Articles par mois de publication</div>
-        <div id="barMonths"></div>
-        <div class="divider"></div>
-        <div class="section-title">Top 10 articles les plus cités</div>
-        <div id="barCitations"></div>
-        <div class="divider"></div>
-        <div class="section-title">Langues</div>
-        <div id="barLangs"></div>
-        <div class="divider"></div>
-        <div class="section-title">Nuage de mots-clés</div>
-        <div class="cloud" id="cloud"></div>
+    <!-- Carte mondiale -->
+    <div class="section-card">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Carte mondiale des mots-clés</div>
+          <div class="section-sub">Taille des bulles = volume de recherche · Cliquez sur un pays pour ses mots dominants</div>
+        </div>
+        <button onclick="resetMapZoom()" style="font-size:12px;padding:5px 12px;border-radius:var(--radius);border:1px solid var(--border-2);background:var(--cream);color:var(--text-2);cursor:pointer;">⟳ Recentrer</button>
       </div>
-
-      <div id="panel-auteurs" class="panel">
-        <div id="auteurList"></div>
-      </div>
-
-      <div id="panel-pays" class="panel">
-        <div class="section-title">Répartition géographique des auteurs</div>
-        <div id="barPaysMain"></div>
-        <div class="divider"></div>
-        <div class="section-title">Carte pays</div>
-        <div class="pays-grid" id="paysGrid"></div>
+      <div class="country-panel-row">
+        <div class="map-wrapper">
+          <div class="map-container" id="mapContainer">
+            <svg id="worldMapSvg" viewBox="0 0 960 500"></svg>
+            <div id="mapTooltip"></div>
+          </div>
+          <div class="map-legend">
+            <span class="legend-bubble" style="width:8px;height:8px;"></span> Peu de recherches
+            <span class="legend-bubble" style="width:16px;height:16px;margin-left:6px;"></span> Volume moyen
+            <span class="legend-bubble" style="width:24px;height:24px;margin-left:6px;"></span> Très actif
+          </div>
+        </div>
+        <div class="country-sidebar">
+          <div class="country-sidebar-title" id="sidebarTitle">Survolez un pays</div>
+          <div id="sidebarBars"><p style="font-size:12px;color:var(--text-3);line-height:1.6;">Cliquez sur une bulle pour voir les mots-clés dominants.</p></div>
+        </div>
       </div>
     </div>
+
+    <!-- Évolution temporelle -->
+    <div class="section-card">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Évolution d'un mot-clé dans le temps</div>
+          <div class="section-sub">Cliquez sur un mot du nuage ou saisissez un terme</div>
+        </div>
+      </div>
+      <div style="display:flex;gap:8px;margin-bottom:1rem;">
+        <input type="text" id="evoInput" placeholder="Ex : quantum, diffusion, multimodal…"
+          style="flex:1;background:var(--cream);border:1.5px solid var(--border-2);border-radius:var(--radius-lg);padding:9px 14px;font-size:14px;color:var(--text);outline:none;"
+          onfocus="this.style.borderColor='var(--gold)'" onblur="this.style.borderColor=''"
+          onkeydown="if(event.key==='Enter') traceEvolution(this.value.trim())"/>
+        <button style="background:var(--gold);color:#fff;border:none;border-radius:var(--radius-lg);padding:9px 20px;font-size:13px;font-weight:600;box-shadow:0 2px 10px rgba(201,150,58,.3);cursor:pointer;"
+          onclick="traceEvolution(document.getElementById('evoInput').value.trim())">Tracer →</button>
+      </div>
+      <div id="evoSuggestions" style="display:flex;flex-wrap:wrap;gap:5px;margin-bottom:1rem;"></div>
+      <div class="evo-word-label" id="evoLabel">Saisissez un mot-clé ci-dessus ou cliquez sur le nuage.</div>
+      <div class="timeline-bars" id="evoChart" style="height:110px;"></div>
+      <div style="font-size:11px;color:var(--text-3);margin-top:.5rem;text-align:center;" id="evoNote"></div>
+    </div>
+
+    <!-- Articles les plus cités -->
+    <div class="section-card">
+      <div class="section-head">
+        <div>
+          <div class="section-title">Articles les plus cités</div>
+          <div class="section-sub" id="articlesSub">Sélection des articles à fort impact · cliquez sur un mot du nuage pour filtrer</div>
+        </div>
+        <div style="display:flex;gap:6px;flex-wrap:wrap;align-items:center;">
+          <button id="resetArticlesBtn" onclick="resetArticles()" style="display:none;font-size:12px;padding:5px 12px;border-radius:var(--radius);border:1px solid var(--border-2);background:var(--cream);color:var(--text-2);cursor:pointer;font-weight:500;">✕ Tous</button>
+          <button onclick="exportArticlesCSV()" style="font-size:12px;padding:5px 12px;border-radius:var(--radius);border:1.5px solid var(--border-2);background:#fff;color:var(--text-2);cursor:pointer;font-weight:500;transition:all .2s;" onmouseover="this.style.borderColor='var(--gold)';this.style.color='var(--gold)'" onmouseout="this.style.borderColor='';this.style.color=''">⬇ Export CSV</button>
+        </div>
+      </div>
+      <div id="topArticlesList"></div>
+    </div>
+
   </div>
 </div>
 
@@ -291,5 +247,7 @@
 <script src="config.js"></script>
 <script src="data.js"></script>
 <script src="app.js"></script>
+
+
 </body>
 </html>
