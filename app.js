@@ -373,17 +373,32 @@ async function loadArticlesTop(mot) {
   }
 }
 
+function urlArticle(id) {
+  if (!id) return null;
+  const valeur = String(id).trim();
+  if (/^https?:\/\//i.test(valeur)) return valeur; // déjà une URL complète
+  if (/^\d{4}\.\d{4,5}(v\d+)?$/.test(valeur)) return `https://arxiv.org/abs/${valeur}`; // arXiv moderne (YYMM.NNNNN)
+  if (/^[a-z-]+\/\d{7}$/i.test(valeur)) return `https://arxiv.org/abs/${valeur}`; // arXiv ancien format
+  if (/^W\d+$/i.test(valeur)) return `https://openalex.org/${valeur}`; // ID OpenAlex (Wxxxxxxxxx)
+  return `https://openalex.org/${valeur}`; // repli par défaut
+}
+
 function rendreArticleCard(a) {
   const auteursTexte = (a.auteurs || [])
     .slice(0, 4)
     .map((au) => echapperHtml(au.nom))
     .join(", ");
   const plusAuteurs = (a.auteurs || []).length > 4 ? ` +${a.auteurs.length - 4}` : "";
+  const lien = urlArticle(a.id);
+  const titre = lien
+    ? `<a href="${echapperHtml(lien)}" target="_blank" rel="noopener noreferrer"
+        style="color:inherit;text-decoration:none;">${echapperHtml(a.titre)} <span style="font-size:.7em;opacity:.5;">↗</span></a>`
+    : echapperHtml(a.titre);
 
   return `
     <article style="padding:1rem 0;border-bottom:1px solid rgba(160,130,90,.15);">
       <h3 style="font-family:'Playfair Display',serif;font-size:1.05rem;margin:0 0 .35rem;">
-        ${echapperHtml(a.titre)}
+        ${titre}
       </h3>
       <div style="font-size:12px;opacity:.65;display:flex;gap:12px;flex-wrap:wrap;">
         <span>📅 ${echapperHtml(a.date || "date inconnue")}</span>
