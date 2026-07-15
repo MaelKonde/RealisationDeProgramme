@@ -13,6 +13,23 @@ from flask_cors import CORS
 application = Flask(__name__)
 CORS(application)
 
+
+@application.after_request
+def ajouter_entetes_cors(response):
+    # Filet de sécurité : garantit que même les réponses d'erreur (500, 404...)
+    # portent l'en-tête CORS, sinon le navigateur bloque leur lecture côté
+    # front-end et affiche un vague "Failed to fetch" au lieu du vrai message.
+    response.headers["Access-Control-Allow-Origin"] = "*"
+    response.headers["Access-Control-Allow-Headers"] = "Content-Type"
+    response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
+    return response
+
+
+@application.errorhandler(Exception)
+def gerer_erreur(e):
+    application.logger.exception("Erreur non gérée")
+    return jsonify({"error": str(e)}), 500
+
 STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "are", "was", "were",
     "have", "has", "been", "into", "such", "using", "used", "based", "these",
