@@ -52,9 +52,32 @@ def gerer_erreur(e):
 
 
 STOPWORDS = {
-    "the", "and", "for", "with", "that", "this", "from", "are", "was", "were",
-    "have", "has", "been", "into", "such", "using", "used", "based", "these",
-    "than", "then", "also", "which", "their", "our", "des", "les", "une", "dans",
+    # Mots grammaticaux / connecteurs génériques (ne sont jamais des mots-clés scientifiques)
+    "about", "above", "across", "after", "again", "against", "all", "almost",
+    "along", "already", "also", "although", "always", "among", "amongst",
+    "another", "any", "anyone", "anything", "around", "back", "became",
+    "because", "become", "becomes", "before", "being", "below", "between",
+    "beyond", "both", "cannot", "could", "does", "doing", "done", "down",
+    "during", "each", "either", "else", "enough", "even", "ever", "every",
+    "few", "first", "found", "further", "given", "gives", "goes", "having",
+    "here", "herself", "himself", "however", "including", "into", "itself",
+    "just", "large", "last", "later", "least", "less", "like", "made",
+    "make", "makes", "many", "might", "more", "most", "mostly", "much",
+    "must", "myself", "near", "need", "needs", "neither", "next", "none",
+    "often", "once", "onto", "other", "others", "ourselves", "over", "part",
+    "perhaps", "please", "quite", "rather", "recent", "recently", "same",
+    "second", "seen", "several", "shall", "should", "show", "shown", "shows",
+    "since", "some", "someone", "something", "still", "such", "take",
+    "taken", "than", "then", "there", "therefore", "these", "they", "this",
+    "those", "though", "three", "through", "throughout", "thus", "together",
+    "toward", "towards", "under", "unless", "until", "upon", "various",
+    "very", "went", "were", "than", "what", "when", "whenever", "where", "whereas",
+    "wherever", "whether", "which", "while", "whose", "will", "within",
+    "without", "would", "yourself", "yourselves",
+    # Déjà présents précédemment
+    "the", "and", "for", "with", "that", "this", "from", "are", "was",
+    "have", "has", "been", "such", "using", "used", "based", "these",
+    "then", "also", "which", "their", "our", "des", "les", "une", "dans",
     "pour", "avec", "sur", "par", "est", "sont", "que", "qui", "aux", "nous",
 }
 
