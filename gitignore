@@ -1,0 +1,14 @@
+# Base de données (téléchargée au build, ne pas committer)
+bdd.db
+
+# Données JSON brutes issues d'OpenAlex (trop volumineux pour le repo)
+arxiv_*.json
+
+# Python
+__pycache__/
+*.pyc
+.venv/
+venv/
+
+# Env
+.env
