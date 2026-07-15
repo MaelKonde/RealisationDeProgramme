@@ -368,6 +368,10 @@ def api_articles_top():
             )
 
         for ligne in lignes:
+            compteur_mots = {}
+            extraire_mots(ligne["index_inverse_compte"], compteur_mots)
+            mots_article = sorted(compteur_mots.items(), key=lambda item: item[1], reverse=True)[:10]
+
             articles.append({
                 "id": ligne["id"],
                 "titre": ligne["titre"],
@@ -375,6 +379,7 @@ def api_articles_top():
                 "langue": ligne["langue"],
                 "citations": ligne["citations"],
                 "auteurs": auteurs_par_article.get(ligne["id"], []),
+                "mots_cles": [m for m, _ in mots_article],
             })
 
     connexion.close()
