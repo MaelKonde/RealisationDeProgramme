@@ -1,7 +1,4 @@
-# Base de données (téléchargée au build, ne pas committer)
-bdd.db
-
-# Données JSON brutes issues d'OpenAlex (trop volumineux pour le repo)
+# Données JSON brutes issues d'OpenAlex (trop volumineuses pour le repo)
 arxiv_*.json
 
 # Python
