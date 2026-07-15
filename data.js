@@ -1,5 +1,5 @@
 /**
- * data.js — Accès aux données (API Flask locale + API Semantic Scholar)
+ * data.js — Accès à l'API Flask ("Tendances Scientifiques")
  * Charger après config.js et avant app.js.
  */
 
@@ -48,82 +48,33 @@ function nomPays(code) {
   return (PAYS_INFO[code] && PAYS_INFO[code].nom) || code;
 }
 
-/** Interroge l'API Flask locale (bdd.db) */
-async function fetchLocalArticles({ q = "", pays = "", langue = "", sort = "citations", limit = 20 } = {}) {
-  const params = new URLSearchParams();
-  if (q) params.set("q", q);
-  if (pays) params.set("pays", pays);
-  if (langue) params.set("langue", langue);
-  if (sort) params.set("sort", sort);
-  if (limit) params.set("limit", limit);
-
-  const res = await fetch(`${CONFIG.API_BASE_URL}/api/search?${params.toString()}`);
-  if (!res.ok) throw new Error(`Erreur API locale (${res.status})`);
+async function requeteJson(chemin, params) {
+  const qs = params ? `?${new URLSearchParams(params).toString()}` : "";
+  const res = await fetch(`${CONFIG.API_BASE_URL}${chemin}${qs}`);
+  if (!res.ok) {
+    let message = `Erreur API (${res.status})`;
+    try {
+      const corps = await res.json();
+      if (corps && corps.error) message = corps.error;
+    } catch (_) {
+      /* réponse non-JSON, on garde le message par défaut */
+    }
+    throw new Error(message);
+  }
   return res.json();
 }
 
-/** Interroge l'API publique Semantic Scholar */
-async function fetchSemanticScholar({ q = "", year = "", field = "", limit = 20 } = {}) {
-  const params = new URLSearchParams();
-  params.set("query", q || "science");
-  params.set("limit", String(limit || 20));
-  params.set("fields", "title,year,publicationDate,citationCount,authors,fieldsOfStudy,externalIds");
-  if (year) params.set("year", `${year}-`);
-  if (field) params.set("fieldsOfStudy", field);
+const fetchMois = () => requeteJson("/api/mois");
 
-  const res = await fetch(`${CONFIG.SEMANTIC_SCHOLAR_BASE}/paper/search?${params.toString()}`);
-  if (!res.ok) throw new Error(`Erreur API Semantic Scholar (${res.status})`);
-  const data = await res.json();
+const fetchMotsCles = (mois = "") => requeteJson("/api/mots-cles", mois ? { mois } : {});
 
-  // Normalise vers le même format que fetchLocalArticles pour que app.js
-  // n'ait pas besoin de distinguer les deux sources.
-  const articles = (data.data || []).map((p) => ({
-    id: (p.externalIds && p.externalIds.DOI) || p.paperId,
-    titre: p.title || "(sans titre)",
-    date: p.publicationDate || (p.year ? `${p.year}-01-01` : ""),
-    langue: "en",
-    citations: p.citationCount || 0,
-    auteurs: (p.authors || []).map((a) => ({ nom: a.name, pays: null })),
-  }));
+const fetchPays = () => requeteJson("/api/pays");
 
-  return {
-    articles,
-    total: data.total || articles.length,
-    stats: calculerStatsLocales(articles),
-  };
-}
+const fetchEvolution = (mot) => requeteJson("/api/evolution", { mot });
 
-/** Recalcule des stats basiques côté client (utilisé pour le mode Semantic Scholar,
- *  qui ne renvoie pas d'agrégats prêts à l'emploi comme l'API locale). */
-function calculerStatsLocales(articles) {
-  const parMois = {};
-  const langues = {};
-  const pays = {};
-  const auteurs = new Set();
+const fetchArticlesTop = (mot, limit = 20) =>
+  requeteJson("/api/articles-top", mot ? { mot, limit } : { limit });
 
-  articles.forEach((a) => {
-    if (a.date) {
-      const mois = a.date.slice(0, 7);
-      parMois[mois] = (parMois[mois] || 0) + 1;
-    }
-    if (a.langue) langues[a.langue] = (langues[a.langue] || 0) + 1;
-    (a.auteurs || []).forEach((au) => {
-      auteurs.add(au.nom);
-      if (au.pays) pays[au.pays] = (pays[au.pays] || 0) + 1;
-    });
-  });
+const fetchSuggestions = () => requeteJson("/api/suggestions");
 
-  const topCitations = [...articles]
-    .sort((a, b) => (b.citations || 0) - (a.citations || 0))
-    .slice(0, 10)
-    .map((a) => ({ titre: a.titre, citations: a.citations }));
-
-  return {
-    par_mois: Object.fromEntries(Object.entries(parMois).sort()),
-    top_citations: topCitations,
-    langues,
-    mots_cles: [],
-    pays,
-    total_auteurs: auteurs.size,
-  };
-}
+const fetchStatsGlobales = () => requeteJson("/api/stats-globales");
