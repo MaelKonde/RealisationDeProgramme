@@ -21,7 +21,7 @@ services:
     plan: free
     region: frankfurt
     buildCommand: "bash build.sh"
-    startCommand: "gunicorn api_flask:application"
+    startCommand: "gunicorn api_flask:application --timeout 120"
     healthCheckPath: /health
     autoDeployTrigger: commit
     envVars:
