@@ -1,0 +1,295 @@
+<!DOCTYPE html>
+<html lang="fr">
+<head>
+  <meta charset="UTF-8"/>
+  <meta name="viewport" content="width=device-width, initial-scale=1.0"/>
+  <title>Veille Scientifique · arXiv</title>
+
+  <!-- Favicon -->
+  <link rel="icon" type="image/svg+xml" href="favicon.svg"/>
+
+  <!-- Polices -->
+  <link href="https://fonts.googleapis.com/css2?family=DM+Sans:wght@300;400;500;600&family=Playfair+Display:ital,wght@0,700;0,800;1,700&display=swap" rel="stylesheet"/>
+
+  <!-- Styles -->
+  <link rel="stylesheet" href="style.css"/>
+</head>
+<body>
+<div class="toast" id="toast"></div>
+
+<!-- Header -->
+<header id="header">
+  <div class="container header-inner">
+    <div class="logo">
+      <div class="logo-mark">✦</div>
+      <span>Veille</span><em>Scientifique</em>
+    </div>
+    <div style="display:flex;gap:8px;align-items:center;">
+      <span class="hpill live">● OpenAlex · arXiv</span>
+      <span class="hpill" id="totalBadge">— articles</span>
+    </div>
+  </div>
+</header>
+
+<!-- Hero -->
+<section class="hero">
+  <div class="hero-bg"></div>
+  <div class="hero-overlay"></div>
+  <canvas id="starCanvas"></canvas>
+  <div class="container">
+    <div class="hero-eyebrow">✦ arXiv · OpenAlex · 2025–2026</div>
+    <h1>Explorer la <em>recherche</em><br>scientifique mondiale</h1>
+    <p class="hero-sub">Données collectées via <strong>OpenAlex API</strong> sur arXiv — mois par mois depuis février 2025. Interrogez la base locale ou Semantic Scholar.</p>
+
+    <!-- Mode toggle -->
+    <div class="mode-toggle">
+      <button class="mode-btn active" id="btnModeLocal" onclick="setMode('local')">📂 Fichiers locaux (JSON)</button>
+      <button class="mode-btn" id="btnModeApi" onclick="setMode('api')">🔌 API Semantic Scholar</button>
+    </div>
+
+    <div class="search-area">
+      <div class="search-row">
+        <input type="text" id="searchInput"
+          placeholder="Mots-clés dans les titres (ex: quantum, neural, climate…)"
+          onkeydown="if(event.key==='Enter') doSearch()" />
+        <button class="btn-search" id="btnSearch" onclick="doSearch()">Rechercher →</button>
+      </div>
+
+      <!-- Filtres communs -->
+      <div class="filter-grid" style="margin-bottom:8px;">
+        <span class="filter-label">Filtres :</span>
+        <select id="fPays">
+          <option value="">Tous pays</option>
+          <option value="FR">France</option>
+          <option value="US">États-Unis</option>
+          <option value="CN">Chine</option>
+          <option value="DE">Allemagne</option>
+          <option value="GB">Royaume-Uni</option>
+          <option value="IT">Italie</option>
+          <option value="JP">Japon</option>
+          <option value="ES">Espagne</option>
+          <option value="CH">Suisse</option>
+          <option value="IN">Inde</option>
+        </select>
+        <select id="fLang">
+          <option value="">Toutes langues</option>
+          <option value="en">Anglais</option>
+          <option value="fr">Français</option>
+        </select>
+        <select id="fSort">
+          <option value="citations">Citations ↓</option>
+          <option value="date">Date (récent)</option>
+          <option value="alpha">Alphabétique</option>
+        </select>
+        <select id="fLimit">
+          <option value="20">20 résultats</option>
+          <option value="50">50 résultats</option>
+          <option value="100">100 résultats</option>
+        </select>
+      </div>
+
+      <!-- Mode LOCAL -->
+      <div class="file-mode-area active" id="localModeArea">
+        <div class="load-progress" id="loadProgress"></div>
+        <div id="monthPills" style="display:none;"></div>
+      </div>
+
+      <!-- Mode API : filtres supplémentaires -->
+      <div class="file-mode-area" id="apiModeArea">
+        <div class="filter-grid">
+          <select id="fYear">
+            <option value="">Toutes années</option>
+            <option value="2024">Depuis 2024</option>
+            <option value="2022">Depuis 2022</option>
+            <option value="2020">Depuis 2020</option>
+          </select>
+          <select id="fField">
+            <option value="">Tous domaines</option>
+            <option value="Biology">Biologie</option>
+            <option value="Physics">Physique</option>
+            <option value="Computer Science">Informatique</option>
+            <option value="Chemistry">Chimie</option>
+            <option value="Environmental Science">Environnement</option>
+            <option value="Medicine">Médecine</option>
+          </select>
+        </div>
+      </div>
+    </div>
+  </div>
+</section>
+
+<!-- Main -->
+<div class="main">
+  <div class="container">
+    <div class="stat-strip" id="statStrip" style="display:none;"></div>
+    <div id="results-zone">
+      <div class="state-box">
+        <div class="state-icon">🔭</div>
+        <p>Sélectionne un ou plusieurs mois et lance une recherche pour explorer la base arXiv.</p>
+      </div>
+    </div>
+    <div id="tabs-section" style="display:none;">
+      <div class="tabs-wrapper">
+        <button class="tab-btn active" onclick="switchTab('articles',this)">Articles</button>
+        <button class="tab-btn" onclick="switchTab('stats',this)">Statistiques</button>
+        <button class="tab-btn" onclick="switchTab('auteurs',this)">Auteurs</button>
+        <button class="tab-btn" onclick="switchTab('pays',this)">Pays</button>
+      </div>
+
+      <div id="panel-articles" class="panel active">
+        <div class="result-meta">
+          <div class="result-meta-left">
+            <span class="count-badge" id="countLine"></span>
+            <span class="source-tag" id="sourceTag">OpenAlex · arXiv</span>
+          </div>
+          <button class="btn-outline" onclick="exportCSV()">⬇ Export CSV</button>
+        </div>
+        <div id="articleList"></div>
+      </div>
+
+      <div id="panel-stats" class="panel">
+        <div class="section-title">Articles par mois de publication</div>
+        <div id="barMonths"></div>
+        <div class="divider"></div>
+        <div class="section-title">Top 10 articles les plus cités</div>
+        <div id="barCitations"></div>
+        <div class="divider"></div>
+        <div class="section-title">Langues</div>
+        <div id="barLangs"></div>
+        <div class="divider"></div>
+        <div class="section-title">Nuage de mots-clés</div>
+        <div class="cloud" id="cloud"></div>
+      </div>
+
+      <div id="panel-auteurs" class="panel">
+        <div id="auteurList"></div>
+      </div>
+
+      <div id="panel-pays" class="panel">
+        <div class="section-title">Répartition géographique des auteurs</div>
+        <div id="barPaysMain"></div>
+        <div class="divider"></div>
+        <div class="section-title">Carte pays</div>
+        <div class="pays-grid" id="paysGrid"></div>
+      </div>
+    </div>
+  </div>
+</div>
+
+
+<!-- ══ Footer ══ -->
+<footer style="
+  background: var(--ink);
+  color: rgba(245,239,230,.55);
+  border-top: 1px solid rgba(160,130,90,.2);
+  padding: 2.5rem 0 2rem;
+  margin-top: 2rem;
+  font-size: 13px;
+  font-family: var(--font);
+">
+  <div style="max-width:1100px;margin:0 auto;padding:0 1.5rem;">
+
+    <!-- Top row : logo + étudiants -->
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:flex-start;gap:2rem;margin-bottom:1.75rem;">
+
+      <!-- Logo & description -->
+      <div>
+        <div style="font-family:'Playfair Display',serif;font-size:1.2rem;font-weight:800;color:rgba(245,239,230,.9);margin-bottom:.4rem;">
+          <span style="color:#c9963a;">Veille </span><em> Scientifique</em>
+        </div>
+        <p style="font-size:12px;color:rgba(245,239,230,.4);max-width:260px;line-height:1.65;">
+          Outil de veille scientifique basé sur les données<br>
+          <strong style="color:rgba(245,239,230,.55);">OpenAlex · arXiv</strong>
+        </p>
+      </div>
+
+      <!-- Étudiants -->
+      <div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(245,239,230,.3);margin-bottom:.75rem;">
+          Étudiants
+        </div>
+        <div style="display:flex;flex-direction:column;gap:6px;">
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#c9963a,#8b3a2a);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;">CD</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:rgba(245,239,230,.85);">Cyril Debrabant</div>
+              <div style="font-size:11px;color:rgba(245,239,230,.35);">Analyse &amp; traitement des données et Collecte · OpenAlex API</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2a6b6b,#1a4545);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;">MK</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:rgba(245,239,230,.85);">Maël Khonde Mbumba</div>
+              <div style="font-size:11px;color:rgba(245,239,230,.35);">Interface front-end</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#6b4a8b,#3d2060);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;">MV</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:rgba(245,239,230,.85);">Matthieu Vacher</div>
+              <div style="font-size:11px;color:rgba(245,239,230,.35);">Base de données SQLite</div>
+            </div>
+          </div>
+          <div style="display:flex;align-items:center;gap:10px;">
+            <div style="width:30px;height:30px;border-radius:50%;background:linear-gradient(135deg,#2a5f8b,#123050);display:flex;align-items:center;justify-content:center;font-size:11px;font-weight:700;color:#fff;">PP</div>
+            <div>
+              <div style="font-size:13px;font-weight:600;color:rgba(245,239,230,.85);">Paloma Parnet Dit Mortel</div>
+              <div style="font-size:11px;color:rgba(245,239,230,.35);">Project Owner et Collecte des données</div>
+            </div>
+          </div>
+        </div>
+      </div>
+
+      <!-- Stack technique -->
+      <div>
+        <div style="font-size:10px;font-weight:700;letter-spacing:.1em;text-transform:uppercase;color:rgba(245,239,230,.3);margin-bottom:.75rem;">
+          Stack technique
+        </div>
+        <div style="display:flex;flex-direction:column;gap:5px;">
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:14px;">🐍</span>
+            <span style="font-size:12px;color:rgba(245,239,230,.6);">Python · OpenAlex API</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:14px;">🗄️</span>
+            <span style="font-size:12px;color:rgba(245,239,230,.6);">SQLite · Flask <span style="color:rgba(245,239,230,.28);font-size:11px;">(à venir)</span></span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:14px;">🌐</span>
+            <span style="font-size:12px;color:rgba(245,239,230,.6);">HTML · CSS · JavaScript</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:14px;">🗺</span>
+            <span style="font-size:12px;color:rgba(245,239,230,.6);">D3.js · TopoJSON · world-atlas</span>
+          </div>
+          <div style="display:flex;align-items:center;gap:8px;">
+            <span style="font-size:14px;">☁️</span>
+            <span style="font-size:12px;color:rgba(245,239,230,.6);">Render.com · GitHub</span>
+          </div>
+        </div>
+      </div>
+
+    </div>
+
+    <!-- Divider -->
+    <div style="height:1px;background:rgba(160,130,90,.15);margin-bottom:1.25rem;"></div>
+
+    <!-- Bottom row -->
+    <div style="display:flex;flex-wrap:wrap;justify-content:space-between;align-items:center;gap:10px;">
+      <div style="font-size:11px;color:rgba(245,239,230,.25);">
+        Projet Universitaire de validation du cours <span style="font-size:13px;font-weight:600;color:rgba(245,239,230,.85);"> Réalisation de Programme</span> DN24EM02
+      </div>
+      <div style="font-size:11px;color:rgba(245,239,230,.2);">
+        Licence 2 Informatique IED
+      </div>
+    </div>
+
+  </div>
+</footer>
+
+<!-- Scripts : ordre important (config → data → app) -->
+<script src="config.js"></script>
+<script src="data.js"></script>
+<script src="app.js"></script>
+</body>
+</html>
