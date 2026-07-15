@@ -1,0 +1,44 @@
+##############################################################################
+# render.yaml — Blueprint pour le projet "Veille Scientifique"
+#
+# Déploie 2 services :
+#   1. veille-scientifique-api    -> service web Flask (API + bdd.db)
+#   2. veille-scientifique-front  -> site statique (index.html, app.js, ...)
+#
+# Utilisation :
+#   1. Pousse ce dépôt (avec ces fichiers à la racine) sur GitHub.
+#   2. Sur Render : New > Blueprint > sélectionne ce dépôt > Deploy Blueprint.
+##############################################################################
+
+services:
+  # ------------------------------------------------------------------------
+  # 1) API Flask (creer_bdd.py / alimenter_bdd.py ne tournent pas ici :
+  #    bdd.db est déjà rempli et committé directement dans le dépôt)
+  # ------------------------------------------------------------------------
+  - type: web
+    name: veille-scientifique-api
+    runtime: python
+    plan: free
+    region: frankfurt
+    buildCommand: "bash build.sh"
+    startCommand: "gunicorn api_flask:application"
+    healthCheckPath: /health
+    autoDeployTrigger: commit
+    envVars:
+      - key: PYTHON_VERSION
+        value: 3.11.9
+
+  # ------------------------------------------------------------------------
+  # 2) Front-end statique (index.html + style.css + app.js + config.js + data.js)
+  #    Adapte "staticPublishPath" si tes fichiers ne sont pas dans /public
+  # ------------------------------------------------------------------------
+  - type: web
+    name: veille-scientifique-front
+    runtime: static
+    buildCommand: ""
+    staticPublishPath: ./public
+    autoDeployTrigger: commit
+    routes:
+      - type: rewrite
+        source: /*
+        destination: /index.html
