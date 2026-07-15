@@ -1,6 +1,8 @@
 """
 Nom........ : api_flask.py
-Description : Renvoie les données de la base de données par le biais d'une API Flask
+Description : API Flask pour "Tendances Scientifiques" (nuage de mots par mois,
+               carte mondiale par pays, évolution temporelle d'un mot-clé,
+               articles les plus cités).
 """
 
 import json
@@ -16,9 +18,6 @@ CORS(application)
 
 @application.after_request
 def ajouter_entetes_cors(response):
-    # Filet de sécurité : garantit que même les réponses d'erreur (500, 404...)
-    # portent l'en-tête CORS, sinon le navigateur bloque leur lecture côté
-    # front-end et affiche un vague "Failed to fetch" au lieu du vrai message.
     response.headers["Access-Control-Allow-Origin"] = "*"
     response.headers["Access-Control-Allow-Headers"] = "Content-Type"
     response.headers["Access-Control-Allow-Methods"] = "GET, OPTIONS"
@@ -29,10 +28,10 @@ def ajouter_entetes_cors(response):
 def gerer_erreur(e):
     from werkzeug.exceptions import HTTPException
     if isinstance(e, HTTPException):
-        # Laisse Flask gérer normalement les 404 / 405 / etc.
         return e
     application.logger.exception("Erreur non gérée")
     return jsonify({"error": str(e)}), 500
+
 
 STOPWORDS = {
     "the", "and", "for", "with", "that", "this", "from", "are", "was", "were",
@@ -40,6 +39,13 @@ STOPWORDS = {
     "than", "then", "also", "which", "their", "our", "des", "les", "une", "dans",
     "pour", "avec", "sur", "par", "est", "sont", "que", "qui", "aux", "nous",
 }
+
+# Nombre d'articles échantillonnés (les plus cités) pour calculer les nuages
+# de mots / évolutions, plutôt que de scanner toute la base à chaque requête.
+TAILLE_ECHANTILLON_MOIS = 400
+TAILLE_ECHANTILLON_PAYS = 150
+TAILLE_ECHANTILLON_EVOLUTION = 150
+TAILLE_ECHANTILLON_SUGGESTIONS = 300
 
 
 def connecter_bdd():
@@ -49,12 +55,8 @@ def connecter_bdd():
 
 
 def initialiser_index():
-    """
-    Crée les index nécessaires pour que les recherches restent rapides sur
-    une base de ~1,4 Go. Sans ça, chaque requête fait un scan complet de la
-    table (lent, cause des timeouts / 502). Exécuté une fois au démarrage
-    du service ; les CREATE INDEX IF NOT EXISTS sont sans danger à répéter.
-    """
+    """Crée les index nécessaires pour que les requêtes restent rapides sur
+    une base de ~1,4 Go. Exécuté une fois au démarrage du service."""
     try:
         connexion = connecter_bdd()
         curseur = connexion.cursor()
@@ -73,141 +75,258 @@ def initialiser_index():
 initialiser_index()
 
 
+def extraire_mots(index_json_str, cible):
+    """Ajoute au dictionnaire `cible` les mots-clés (et leur poids) trouvés
+    dans une colonne index_inverse_compte (JSON : {mot: [positions]})."""
+    if not index_json_str:
+        return
+    try:
+        index_inverse = json.loads(index_json_str)
+    except (json.JSONDecodeError, TypeError):
+        return
+
+    for mot, positions in index_inverse.items():
+        mot_normalise = mot.lower().strip()
+        if len(mot_normalise) < 4 or mot_normalise in STOPWORDS:
+            continue
+        if not mot_normalise.replace("-", "").isalpha():
+            continue
+        poids = len(positions) if isinstance(positions, list) else 1
+        cible[mot_normalise] = cible.get(mot_normalise, 0) + poids
+
+
+def bornes_du_mois(mois):
+    """'2025-03' -> ('2025-03-01', '2025-04-01') pour filtrer par plage de date
+    (permet d'utiliser l'index sur `date`, contrairement à substr(date,1,7))."""
+    annee, mois_num = mois.split("-")
+    annee, mois_num = int(annee), int(mois_num)
+    debut = f"{annee:04d}-{mois_num:02d}-01"
+    if mois_num == 12:
+        fin = f"{annee + 1:04d}-01-01"
+    else:
+        fin = f"{annee:04d}-{mois_num + 1:02d}-01"
+    return debut, fin
+
+
 @application.route("/health")
 def health():
-    """Utilisé par Render pour vérifier que le service est prêt (healthCheckPath)."""
     return jsonify({"status": "ok"})
 
 
-@application.route("/articles/<int:limite>")
-def liste_articles(limite):
+@application.route("/api/mois")
+def api_mois():
     connexion = connecter_bdd()
     curseur = connexion.cursor()
-
     curseur.execute("""
-        SELECT id, titre, date, langue, citations
+        SELECT DISTINCT substr(date, 1, 7) AS mois
         FROM articles
-        ORDER BY date DESC
-        LIMIT ?
-    """, (limite,))
+        WHERE date IS NOT NULL AND date != ''
+        ORDER BY mois
+    """)
+    mois = [ligne["mois"] for ligne in curseur.fetchall() if ligne["mois"]]
+    connexion.close()
+    return jsonify({"mois": mois})
+
+
+@application.route("/api/mots-cles")
+def api_mots_cles():
+    mois = request.args.get("mois", "").strip()
+    try:
+        limite_mots = min(max(int(request.args.get("limit", 40)), 5), 100)
+    except ValueError:
+        limite_mots = 40
+
+    connexion = connecter_bdd()
+    curseur = connexion.cursor()
+
+    if mois:
+        try:
+            debut, fin = bornes_du_mois(mois)
+            curseur.execute("""
+                SELECT index_inverse_compte
+                FROM articles
+                WHERE date >= ? AND date < ?
+                ORDER BY citations DESC
+                LIMIT ?
+            """, (debut, fin, TAILLE_ECHANTILLON_MOIS))
+        except ValueError:
+            mois = ""
+            curseur.execute("""
+                SELECT index_inverse_compte FROM articles
+                ORDER BY citations DESC LIMIT ?
+            """, (TAILLE_ECHANTILLON_MOIS,))
+    else:
+        curseur.execute("""
+            SELECT index_inverse_compte FROM articles
+            ORDER BY citations DESC LIMIT ?
+        """, (TAILLE_ECHANTILLON_MOIS,))
 
     lignes = curseur.fetchall()
     connexion.close()
 
-    articles = [
-        {
-            "id": ligne["id"],
-            "titre": ligne["titre"],
-            "date": ligne["date"],
-            "langue": ligne["langue"],
-            "citations": ligne["citations"]
-        }
-        for ligne in lignes
-    ]
+    compteur = {}
+    for ligne in lignes:
+        extraire_mots(ligne["index_inverse_compte"], compteur)
 
-    return jsonify(articles)
+    mots = sorted(compteur.items(), key=lambda item: item[1], reverse=True)[:limite_mots]
+
+    return jsonify({
+        "mois": mois or "tous",
+        "mots": [{"mot": m, "poids": p} for m, p in mots],
+        "echantillon": len(lignes),
+    })
 
 
-@application.route("/auteurs/<id_article>")
-def liste_auteurs(id_article):
+@application.route("/api/pays")
+def api_pays():
+    try:
+        limite_pays = min(max(int(request.args.get("limit_pays", 25)), 1), 50)
+    except ValueError:
+        limite_pays = 25
+    try:
+        limite_mots = min(max(int(request.args.get("mots_par_pays", 8)), 1), 20)
+    except ValueError:
+        limite_mots = 8
+
     connexion = connecter_bdd()
     curseur = connexion.cursor()
 
     curseur.execute("""
-        SELECT nom, pays
+        SELECT pays, COUNT(DISTINCT id_article) AS total
         FROM auteurs
-        WHERE id_article = ?
-    """, (id_article,))
+        WHERE pays IS NOT NULL AND pays != ''
+        GROUP BY pays
+        ORDER BY total DESC
+        LIMIT ?
+    """, (limite_pays,))
+    lignes_pays = curseur.fetchall()
 
-    lignes = curseur.fetchall()
+    resultat = []
+    for ligne_pays in lignes_pays:
+        code = ligne_pays["pays"]
+        curseur.execute("""
+            SELECT articles.index_inverse_compte
+            FROM articles
+            JOIN auteurs ON auteurs.id_article = articles.id
+            WHERE auteurs.pays = ?
+            ORDER BY articles.citations DESC
+            LIMIT ?
+        """, (code, TAILLE_ECHANTILLON_PAYS))
+
+        compteur = {}
+        for ligne in curseur.fetchall():
+            extraire_mots(ligne["index_inverse_compte"], compteur)
+        mots = sorted(compteur.items(), key=lambda item: item[1], reverse=True)[:limite_mots]
+
+        resultat.append({
+            "code": code,
+            "total": ligne_pays["total"],
+            "mots": [{"mot": m, "poids": p} for m, p in mots],
+        })
+
     connexion.close()
-
-    auteurs = [
-        {"nom": ligne["nom"], "pays": ligne["pays"]}
-        for ligne in lignes
-    ]
-
-    return jsonify(auteurs)
+    return jsonify({"pays": resultat})
 
 
-@application.route("/api/search")
-def api_search():
-    """
-    Endpoint principal utilisé par le front-end (mode 'Fichiers locaux').
+@application.route("/api/evolution")
+def api_evolution():
+    mot = request.args.get("mot", "").strip().lower()
+    if not mot:
+        return jsonify({"error": "Paramètre 'mot' requis."}), 400
 
-    Paramètres de requête :
-      q      : mot-clé dans le titre
-      pays   : code pays (ex: FR, US)
-      langue : code langue (en, fr)
-      sort   : citations | date | alpha
-      limit  : nombre d'articles à renvoyer (max 200)
-    """
-    q = request.args.get("q", "").strip()
-    pays = request.args.get("pays", "").strip().upper()
-    langue = request.args.get("langue", "").strip()
-    sort = request.args.get("sort", "citations")
+    connexion = connecter_bdd()
+    curseur = connexion.cursor()
 
+    curseur.execute("""
+        SELECT DISTINCT substr(date, 1, 7) AS mois
+        FROM articles
+        WHERE date IS NOT NULL AND date != ''
+        ORDER BY mois
+    """)
+    tous_les_mois = [l["mois"] for l in curseur.fetchall() if l["mois"]]
+
+    serie = []
+    for mois in tous_les_mois:
+        try:
+            debut, fin = bornes_du_mois(mois)
+        except ValueError:
+            continue
+
+        curseur.execute("""
+            SELECT index_inverse_compte
+            FROM articles
+            WHERE date >= ? AND date < ?
+            ORDER BY citations DESC
+            LIMIT ?
+        """, (debut, fin, TAILLE_ECHANTILLON_EVOLUTION))
+
+        poids_mois = 0
+        for ligne in curseur.fetchall():
+            if not ligne["index_inverse_compte"]:
+                continue
+            try:
+                index_inverse = json.loads(ligne["index_inverse_compte"])
+            except (json.JSONDecodeError, TypeError):
+                continue
+            for cle, positions in index_inverse.items():
+                if cle.lower().strip() == mot:
+                    poids_mois += len(positions) if isinstance(positions, list) else 1
+                    break
+
+        serie.append({"mois": mois, "poids": poids_mois})
+
+    connexion.close()
+    return jsonify({"mot": mot, "serie": serie})
+
+
+@application.route("/api/articles-top")
+def api_articles_top():
+    mot = request.args.get("mot", "").strip().lower()
     try:
-        limite = min(max(int(request.args.get("limit", 20)), 1), 200)
+        limite = min(max(int(request.args.get("limit", 20)), 1), 100)
     except ValueError:
         limite = 20
 
     connexion = connecter_bdd()
     curseur = connexion.cursor()
 
-    conditions = []
-    params = []
+    if mot:
+        # NB : LIKE sur une colonne JSON non indexée = scan complet, donc plus
+        # lent qu'un tri par citations classique. Acceptable pour ce volume,
+        # mais une vraie recherche plein texte (FTS5) serait la suite logique.
+        curseur.execute("""
+            SELECT id, titre, date, langue, citations, index_inverse_compte
+            FROM articles
+            WHERE index_inverse_compte LIKE ?
+            ORDER BY citations DESC
+            LIMIT ?
+        """, (f'%"{mot}"%', limite * 5))
 
-    if q:
-        conditions.append("articles.titre LIKE ?")
-        params.append(f"%{q}%")
-    if langue:
-        conditions.append("articles.langue = ?")
-        params.append(langue)
-    if pays:
-        conditions.append("articles.id IN (SELECT id_article FROM auteurs WHERE pays = ?)")
-        params.append(pays)
-
-    where_clause = f"WHERE {' AND '.join(conditions)}" if conditions else ""
-
-    ordre = {
-        "citations": "articles.citations DESC",
-        "date": "articles.date DESC",
-        "alpha": "articles.titre COLLATE NOCASE ASC",
-    }.get(sort, "articles.citations DESC")
-
-    curseur.execute(f"""
-        SELECT id, titre, date, langue, citations, index_inverse_compte
-        FROM articles
-        {where_clause}
-        ORDER BY {ordre}
-        LIMIT ?
-    """, (*params, limite))
-
-    lignes = curseur.fetchall()
+        lignes = []
+        for ligne in curseur.fetchall():
+            try:
+                index_inverse = json.loads(ligne["index_inverse_compte"] or "{}")
+            except (json.JSONDecodeError, TypeError):
+                continue
+            if any(cle.lower().strip() == mot for cle in index_inverse.keys()):
+                lignes.append(ligne)
+            if len(lignes) >= limite:
+                break
+    else:
+        curseur.execute("""
+            SELECT id, titre, date, langue, citations, index_inverse_compte
+            FROM articles
+            ORDER BY citations DESC
+            LIMIT ?
+        """, (limite,))
+        lignes = curseur.fetchall()
 
     articles = []
-    mois_compte = {}
-    langues_compte = {}
-    mots_compte = {}
-    pays_compte = {}
-    auteurs_total = set()
-
     for ligne in lignes:
-        id_article = ligne["id"]
-
-        curseur.execute(
-            "SELECT nom, pays FROM auteurs WHERE id_article = ?", (id_article,)
-        )
-        auteurs = []
-        for ligne_auteur in curseur.fetchall():
-            auteurs.append({"nom": ligne_auteur["nom"], "pays": ligne_auteur["pays"]})
-            auteurs_total.add(ligne_auteur["nom"])
-            if ligne_auteur["pays"]:
-                pays_compte[ligne_auteur["pays"]] = pays_compte.get(ligne_auteur["pays"], 0) + 1
-
+        curseur.execute("SELECT nom, pays FROM auteurs WHERE id_article = ?", (ligne["id"],))
+        auteurs = [{"nom": a["nom"], "pays": a["pays"]} for a in curseur.fetchall()]
         articles.append({
-            "id": id_article,
+            "id": ligne["id"],
             "titre": ligne["titre"],
             "date": ligne["date"],
             "langue": ligne["langue"],
@@ -215,48 +334,61 @@ def api_search():
             "auteurs": auteurs,
         })
 
-        if ligne["date"]:
-            mois = ligne["date"][:7]
-            mois_compte[mois] = mois_compte.get(mois, 0) + 1
+    connexion.close()
+    return jsonify({"articles": articles, "mot": mot or None})
 
-        if ligne["langue"]:
-            langues_compte[ligne["langue"]] = langues_compte.get(ligne["langue"], 0) + 1
 
-        if ligne["index_inverse_compte"]:
-            try:
-                index_inverse = json.loads(ligne["index_inverse_compte"])
-                for mot, positions in index_inverse.items():
-                    mot_normalise = mot.lower().strip()
-                    if len(mot_normalise) < 4 or mot_normalise in STOPWORDS:
-                        continue
-                    poids = len(positions) if isinstance(positions, list) else 1
-                    mots_compte[mot_normalise] = mots_compte.get(mot_normalise, 0) + poids
-            except (json.JSONDecodeError, TypeError):
-                pass
+@application.route("/api/suggestions")
+def api_suggestions():
+    try:
+        limite = min(max(int(request.args.get("limit", 12)), 1), 30)
+    except ValueError:
+        limite = 12
 
+    connexion = connecter_bdd()
+    curseur = connexion.cursor()
+    curseur.execute("""
+        SELECT index_inverse_compte FROM articles
+        ORDER BY citations DESC LIMIT ?
+    """, (TAILLE_ECHANTILLON_SUGGESTIONS,))
+
+    compteur = {}
+    for ligne in curseur.fetchall():
+        extraire_mots(ligne["index_inverse_compte"], compteur)
     connexion.close()
 
-    top_citations = sorted(articles, key=lambda a: a["citations"] or 0, reverse=True)[:10]
-    mots_cles = sorted(mots_compte.items(), key=lambda item: item[1], reverse=True)[:40]
+    mots = sorted(compteur.items(), key=lambda item: item[1], reverse=True)[:limite]
+    return jsonify({"suggestions": [m for m, _ in mots]})
 
+
+@application.route("/api/stats-globales")
+def api_stats_globales():
+    connexion = connecter_bdd()
+    curseur = connexion.cursor()
+
+    curseur.execute("SELECT COUNT(*) AS n, SUM(citations) AS total_citations FROM articles")
+    ligne = curseur.fetchone()
+    total_articles = ligne["n"] or 0
+    total_citations = ligne["total_citations"] or 0
+
+    curseur.execute("SELECT COUNT(DISTINCT pays) AS n FROM auteurs WHERE pays IS NOT NULL AND pays != ''")
+    total_pays = curseur.fetchone()["n"] or 0
+
+    curseur.execute("""
+        SELECT COUNT(DISTINCT substr(date, 1, 7)) AS n
+        FROM articles WHERE date IS NOT NULL AND date != ''
+    """)
+    total_mois = curseur.fetchone()["n"] or 0
+
+    connexion.close()
     return jsonify({
-        "articles": articles,
-        "total": len(articles),
-        "stats": {
-            "par_mois": dict(sorted(mois_compte.items())),
-            "top_citations": [
-                {"titre": a["titre"], "citations": a["citations"]} for a in top_citations
-            ],
-            "langues": langues_compte,
-            "mots_cles": [{"mot": m, "poids": p} for m, p in mots_cles],
-            "pays": pays_compte,
-            "total_auteurs": len(auteurs_total),
-        },
+        "total_articles": total_articles,
+        "total_citations": total_citations,
+        "total_pays": total_pays,
+        "total_mois": total_mois,
     })
 
 
 if __name__ == "__main__":
-    # Utilisé uniquement en local (`python3 api_flask.py`).
-    # En production sur Render, c'est gunicorn qui démarre l'app (voir render.yaml).
     port = int(os.environ.get("PORT", 5000))
     application.run(host="0.0.0.0", port=port, debug=True)
