@@ -383,29 +383,64 @@ function urlArticle(id) {
   return `https://openalex.org/${valeur}`; // repli par défaut
 }
 
+function pilluleStyle(fond, bordure, couleurTexte) {
+  return `display:inline-flex;align-items:center;gap:4px;padding:4px 10px;border-radius:999px;
+    font-size:11.5px;font-weight:500;background:${fond};border:1px solid ${bordure};color:${couleurTexte};
+    white-space:nowrap;`;
+}
+
+function urlArxivRecherche(titre) {
+  return `https://arxiv.org/search/?searchtype=title&query=${encodeURIComponent(titre || "")}`;
+}
+
 function rendreArticleCard(a) {
-  const auteursTexte = (a.auteurs || [])
-    .slice(0, 4)
-    .map((au) => echapperHtml(au.nom))
-    .join(", ");
-  const plusAuteurs = (a.auteurs || []).length > 4 ? ` +${a.auteurs.length - 4}` : "";
   const lien = urlArticle(a.id);
-  const titre = lien
+  const titreHtml = lien
     ? `<a href="${echapperHtml(lien)}" target="_blank" rel="noopener noreferrer"
         style="color:inherit;text-decoration:none;">${echapperHtml(a.titre)} <span style="font-size:.7em;opacity:.5;">↗</span></a>`
     : echapperHtml(a.titre);
 
+  const auteursNoms = (a.auteurs || []).slice(0, 6).map((au) => au.nom).filter(Boolean);
+  const plusAuteurs = (a.auteurs || []).length > 6 ? ` +${(a.auteurs || []).length - 6}` : "";
+  const ligneAuteurs = auteursNoms.length
+    ? `<div style="font-size:13px;opacity:.75;margin:.2rem 0 .55rem;">${echapperHtml(auteursNoms.join(", "))}${plusAuteurs}</div>`
+    : "";
+
+  const paysUniques = [...new Set((a.auteurs || []).map((au) => au.pays).filter(Boolean))];
+
+  const pillulesMeta = [
+    `<span style="${pilluleStyle("rgba(90,140,200,.12)", "rgba(90,140,200,.3)", "inherit")}">📅 ${echapperHtml(a.date || "date inconnue")}</span>`,
+    `<span style="${pilluleStyle("rgba(201,150,58,.12)", "rgba(201,150,58,.35)", CONFIG.ACCENT)}">⭐ ${a.citations || 0} citation(s)</span>`,
+    ...paysUniques.map(
+      (code) => `<span style="${pilluleStyle("rgba(160,130,90,.1)", "rgba(160,130,90,.3)", "inherit")}">${echapperHtml(code)}</span>`
+    ),
+  ].join(" ");
+
+  const pillulesLiens = [
+    lien
+      ? `<a href="${echapperHtml(lien)}" target="_blank" rel="noopener noreferrer"
+          style="${pilluleStyle("rgba(160,130,90,.08)", "rgba(160,130,90,.3)", "inherit")}text-decoration:none;">🔗 OpenAlex</a>`
+      : "",
+    `<a href="${echapperHtml(urlArxivRecherche(a.titre))}" target="_blank" rel="noopener noreferrer"
+        style="${pilluleStyle("rgba(160,130,90,.08)", "rgba(160,130,90,.3)", "inherit")}text-decoration:none;">📄 arXiv</a>`,
+  ].join(" ");
+
+  const pillulesMots = (a.mots_cles || [])
+    .map(
+      (mot) => `<span onclick="traceEvolution('${echapperAttribut(mot)}')"
+        style="${pilluleStyle("rgba(201,150,58,.08)", "rgba(201,150,58,.3)", CONFIG.ACCENT)}cursor:pointer;">${echapperHtml(mot)}</span>`
+    )
+    .join(" ");
+
   return `
-    <article style="padding:1rem 0;border-bottom:1px solid rgba(160,130,90,.15);">
-      <h3 style="font-family:'Playfair Display',serif;font-size:1.05rem;margin:0 0 .35rem;">
-        ${titre}
+    <article style="padding:1.1rem 1.2rem;margin-bottom:.9rem;border:1px solid rgba(160,130,90,.18);border-radius:14px;">
+      <h3 style="font-family:'Playfair Display',serif;font-size:1.08rem;margin:0 0 .2rem;line-height:1.35;">
+        ${titreHtml}
       </h3>
-      <div style="font-size:12px;opacity:.65;display:flex;gap:12px;flex-wrap:wrap;">
-        <span>📅 ${echapperHtml(a.date || "date inconnue")}</span>
-        <span>🌐 ${echapperHtml((a.langue || "?").toUpperCase())}</span>
-        <span>🔖 ${a.citations || 0} citation(s)</span>
-        ${auteursTexte ? `<span>✍️ ${auteursTexte}${plusAuteurs}</span>` : ""}
-      </div>
+      ${ligneAuteurs}
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:.55rem;">${pillulesMeta}</div>
+      <div style="display:flex;flex-wrap:wrap;gap:6px;margin-bottom:.55rem;">${pillulesLiens}</div>
+      ${pillulesMots ? `<div style="display:flex;flex-wrap:wrap;gap:6px;">${pillulesMots}</div>` : ""}
     </article>`;
 }
 
