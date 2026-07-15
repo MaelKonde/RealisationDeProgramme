@@ -27,6 +27,10 @@ def ajouter_entetes_cors(response):
 
 @application.errorhandler(Exception)
 def gerer_erreur(e):
+    from werkzeug.exceptions import HTTPException
+    if isinstance(e, HTTPException):
+        # Laisse Flask gérer normalement les 404 / 405 / etc.
+        return e
     application.logger.exception("Erreur non gérée")
     return jsonify({"error": str(e)}), 500
 
@@ -42,6 +46,31 @@ def connecter_bdd():
     connexion = sqlite3.connect("bdd.db")
     connexion.row_factory = sqlite3.Row
     return connexion
+
+
+def initialiser_index():
+    """
+    Crée les index nécessaires pour que les recherches restent rapides sur
+    une base de ~1,4 Go. Sans ça, chaque requête fait un scan complet de la
+    table (lent, cause des timeouts / 502). Exécuté une fois au démarrage
+    du service ; les CREATE INDEX IF NOT EXISTS sont sans danger à répéter.
+    """
+    try:
+        connexion = connecter_bdd()
+        curseur = connexion.cursor()
+        curseur.execute("CREATE INDEX IF NOT EXISTS idx_articles_citations ON articles(citations)")
+        curseur.execute("CREATE INDEX IF NOT EXISTS idx_articles_date ON articles(date)")
+        curseur.execute("CREATE INDEX IF NOT EXISTS idx_articles_langue ON articles(langue)")
+        curseur.execute("CREATE INDEX IF NOT EXISTS idx_auteurs_id_article ON auteurs(id_article)")
+        curseur.execute("CREATE INDEX IF NOT EXISTS idx_auteurs_pays ON auteurs(pays)")
+        connexion.commit()
+        connexion.close()
+        application.logger.info("Index SQLite vérifiés/créés avec succès.")
+    except Exception:
+        application.logger.exception("Erreur lors de la création des index SQLite")
+
+
+initialiser_index()
 
 
 @application.route("/health")
