@@ -3,7 +3,7 @@ Nom........ : app.js
 Description : Fonctions globales requises par les attributs onclick de index.html :
               resetMapZoom, traceEvolution, resetArticles, exportArticlesCSV, selectionnerMois.
               chargés via les <script> dans le <head> de index.html).
-Usage...... : Charger en dernier (après config.js et data.js — d3/topojson sont déjà.
+Usage...... : Charger en dernier (après config.js et data_AccessAPI_Flask.js.js — d3/topojson sont déjà.
 HELP...... : Créer par claude.ia
 */
 
