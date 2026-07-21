@@ -302,14 +302,19 @@ async function traceEvolution(mot) {
       if (serie.length === 0) {
         chart.innerHTML = `<p style="opacity:.6;font-size:13px;">Pas de données.</p>`;
       } else {
+        // On fixe une hauteur en pixels sur le conteneur : un `height:100%` sur
+        // les barres ne se résout que si un ancêtre a une hauteur en px quelque
+        // part dans la chaîne — sinon les barres restent invisibles même avec
+        // des données correctes. On sécurise ça ici plutôt que de dépendre du CSS.
+        const hauteurGraphique = chart.clientHeight > 20 ? chart.clientHeight : 180;
         const max = Math.max(1, ...serie.map((s) => s.poids));
         chart.innerHTML =
-          `<div style="display:flex;align-items:flex-end;gap:4px;height:100%;">` +
+          `<div style="display:flex;align-items:flex-end;gap:4px;height:${hauteurGraphique}px;">` +
           serie
             .map((s) => {
-              const h = Math.max(2, Math.round((s.poids / max) * 100));
+              const h = Math.max(2, Math.round((s.poids / max) * hauteurGraphique));
               return `<div title="${echapperHtml(s.mois)} : ${s.poids}"
-                style="flex:1;height:${h}%;background:${CONFIG.ACCENT};border-radius:3px 3px 0 0;min-width:4px;"></div>`;
+                style="flex:1;height:${h}px;background:${CONFIG.ACCENT};border-radius:3px 3px 0 0;min-width:4px;"></div>`;
             })
             .join("") +
           `</div>`;
