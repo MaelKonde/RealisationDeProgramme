@@ -285,6 +285,51 @@ def extraire_mots(index_json_str, cible):
             cible[phrase_originale] = cible.get(phrase_originale, 0) + occurrences
 
 
+def occurrences_mot_dans_index(mot, index_inverse):
+    """Compte les occurrences de `mot` dans un index inversé {mot: [positions]}.
+
+    `mot` peut être un mot simple ("neural") ou une expression composée
+    ("machine learning", séparée par des espaces) — c'est nécessaire depuis
+    que /api/mots-cles, /api/pays et /api/suggestions peuvent renvoyer des
+    expressions composées issues du référentiel JSON (PHRASES_CLES). Sans
+    cette fonction, cliquer sur un mot-clé composé dans le nuage donnait une
+    évolution/temporalité vide (comparaison exacte clé == mot, qui ne peut
+    jamais matcher une clé mono-mot).
+
+    Pour une expression, on vérifie que les mots apparaissent à des positions
+    consécutives dans le texte (même logique que dans extraire_mots).
+    """
+    if not mot:
+        return 0
+
+    positions_par_mot = {}
+    for cle, positions in index_inverse.items():
+        cle_normalisee = cle.lower().strip()
+        positions_par_mot[cle_normalisee] = set(positions) if isinstance(positions, list) else {0}
+
+    mots_recherche = mot.split()
+
+    if len(mots_recherche) == 1:
+        positions = positions_par_mot.get(mots_recherche[0])
+        return len(positions) if positions else 0
+
+    positions_premier_mot = positions_par_mot.get(mots_recherche[0])
+    if not positions_premier_mot:
+        return 0
+
+    occurrences = 0
+    for position_depart in positions_premier_mot:
+        trouve = True
+        for decalage, mot_suivant in enumerate(mots_recherche[1:], start=1):
+            positions_mot_suivant = positions_par_mot.get(mot_suivant)
+            if not positions_mot_suivant or (position_depart + decalage) not in positions_mot_suivant:
+                trouve = False
+                break
+        if trouve:
+            occurrences += 1
+    return occurrences
+
+
 def bornes_du_mois(mois):
     """'2025-03' -> ('2025-03-01', '2025-04-01') pour filtrer par plage de date
     (permet d'utiliser l'index sur `date`, contrairement à substr(date,1,7))."""
@@ -472,10 +517,7 @@ def api_evolution():
                 index_inverse = json.loads(ligne["index_inverse_compte"])
             except (json.JSONDecodeError, TypeError):
                 continue
-            for cle, positions in index_inverse.items():
-                if cle.lower().strip() == mot:
-                    poids_mois += len(positions) if isinstance(positions, list) else 1
-                    break
+            poids_mois += occurrences_mot_dans_index(mot, index_inverse)
 
         serie.append({"mois": mois, "poids": poids_mois})
 
@@ -498,13 +540,18 @@ def api_articles_top():
         # NB : LIKE sur une colonne JSON non indexée = scan complet, donc plus
         # lent qu'un tri par citations classique. Acceptable pour ce volume,
         # mais une vraie recherche plein texte (FTS5) serait la suite logique.
+        # Pré-filtre SQL sur le 1er mot de l'expression (LIKE reste utile pour
+        # réduire le nombre de lignes chargées), la vérification exacte
+        # (y compris positions consécutives pour les expressions composées)
+        # se fait ensuite en Python via occurrences_mot_dans_index.
+        premier_mot = mot.split()[0] if mot.split() else mot
         curseur.execute("""
             SELECT id, titre, date, langue, citations, index_inverse_compte
             FROM articles
             WHERE index_inverse_compte LIKE ?
             ORDER BY citations DESC
             LIMIT ?
-        """, (f'%"{mot}"%', limite * 5))
+        """, (f'%"{premier_mot}"%', limite * 5))
 
         lignes = []
         for ligne in curseur.fetchall():
@@ -512,7 +559,7 @@ def api_articles_top():
                 index_inverse = json.loads(ligne["index_inverse_compte"] or "{}")
             except (json.JSONDecodeError, TypeError):
                 continue
-            if any(cle.lower().strip() == mot for cle in index_inverse.keys()):
+            if occurrences_mot_dans_index(mot, index_inverse) > 0:
                 lignes.append(ligne)
             if len(lignes) >= limite:
                 break
