@@ -229,7 +229,7 @@ async function dessinerCarteBulles() {
     .attr("cx", (d) => d.x)
     .attr("cy", (d) => d.y)
     .attr("r", (d) => rayon(d.total))
-    .attr("fill", CONFIG.ACCENT_SOFT)
+    .attr("fill", CONFIG.ACCENT_SOFT_COLOR_VISUEL)
     .attr("stroke", CONFIG.ACCENT)
     .attr("stroke-width", 1)
     .style("cursor", "pointer")
