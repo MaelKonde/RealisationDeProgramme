@@ -117,19 +117,6 @@ STOPWORDS = {
     "yield", "yielded", "yields", "lead", "leads", "leading", "led",
     "help", "helped", "helps", "contribute", "contributed", "contributes",
     "present", "presented", "presents",
-    # Vocabulaire "méta" des articles scientifiques (structure/rédaction, jamais
-    # un concept scientifique en soi) — ajoutés pour renforcer le filtrage.
-    "paper", "papers", "study", "studies", "research", "article", "articles",
-    "chapter", "chapters", "section", "sections", "figure", "figures",
-    "table", "tables", "case", "cases", "approach", "approaches",
-    "framework", "frameworks", "overview", "introduction", "conclusion",
-    "conclusions", "background", "summary", "abstract", "keyword",
-    "keywords", "author", "authors", "university", "department",
-    "institute", "novel", "new", "overall", "total", "significant",
-    "significantly", "important", "importantly", "key", "main", "primary",
-    "additional", "related", "similar", "specific", "general", "review",
-    "reviews", "literature", "issue", "issues", "purpose", "objective",
-    "objectives", "scope", "limitation", "limitations", "future work",
     # Déjà présents précédemment
     "the", "and", "for", "with", "that", "this", "from", "are", "was",
     "have", "has", "been", "such", "using", "used", "based", "these",
@@ -143,59 +130,6 @@ TAILLE_ECHANTILLON_MOIS = 250
 TAILLE_ECHANTILLON_PAYS = 100
 TAILLE_ECHANTILLON_EVOLUTION = 100
 TAILLE_ECHANTILLON_SUGGESTIONS = 250
-
-# ---------------------------------------------------------------------------
-# Référentiel de mots-clés scientifiques (fichier JSON : {catégorie: [termes]})
-# Sert de "liste blanche" : un mot/expression n'est retenu comme mot-clé que
-# s'il figure dans ce référentiel (en plus d'être filtré par STOPWORDS).
-# ---------------------------------------------------------------------------
-CHEMIN_MOTS_CLES_REFERENCE = os.environ.get(
-    "MOTS_CLES_REFERENCE", os.path.join(os.path.dirname(os.path.abspath(__file__)), "mots_cles.json")
-)
-
-
-def charger_mots_cles_reference(chemin):
-    """Charge le référentiel JSON de mots-clés et le découpe en deux structures :
-    - mots_simples : {mot (1 seul token) -> catégorie}
-    - phrases : liste de (tuple_de_mots, phrase_originale, catégorie) pour les
-      expressions de 2 mots ou plus (ex. "machine learning").
-
-    Ne fait jamais planter le démarrage de l'app : si le fichier est absent ou
-    invalide, on repart avec un référentiel vide (comportement = avant, filtré
-    uniquement par STOPWORDS) et on logue un avertissement.
-    """
-    mots_simples = {}
-    phrases = []
-    try:
-        with open(chemin, encoding="utf-8") as f:
-            categories = json.load(f)
-        for categorie, termes in categories.items():
-            for terme in termes:
-                terme_normalise = terme.lower().strip()
-                if not terme_normalise:
-                    continue
-                mots = terme_normalise.split()
-                if len(mots) == 1:
-                    mots_simples[mots[0]] = categorie
-                else:
-                    phrases.append((tuple(mots), terme_normalise, categorie))
-    except FileNotFoundError:
-        application.logger.warning(
-            "Référentiel de mots-clés introuvable (%s) — filtrage par STOPWORDS uniquement.",
-            chemin,
-        )
-    except (json.JSONDecodeError, TypeError, AttributeError):
-        application.logger.exception("Référentiel de mots-clés invalide (%s)", chemin)
-
-    # Les phrases les plus longues d'abord : si "neural network" et
-    # "convolutional neural network" existent toutes les deux, on veut pouvoir
-    # les compter chacune correctement (elles restent indépendantes ici, mais
-    # trier ainsi facilite une éventuelle dé-duplication future).
-    phrases.sort(key=lambda item: len(item[0]), reverse=True)
-    return mots_simples, phrases
-
-
-MOTS_CLES_SIMPLES, PHRASES_CLES = charger_mots_cles_reference(CHEMIN_MOTS_CLES_REFERENCE)
 
 
 def connecter_bdd():
@@ -227,17 +161,7 @@ initialiser_index()
 
 def extraire_mots(index_json_str, cible):
     """Ajoute au dictionnaire `cible` les mots-clés (et leur poids) trouvés
-    dans une colonne index_inverse_compte (JSON : {mot: [positions]}).
-
-    Deux passes :
-    1) Mots simples : ne sont retenus que ceux présents dans le référentiel
-       JSON (MOTS_CLES_SIMPLES) et absents de STOPWORDS.
-    2) Expressions composées (PHRASES_CLES, ex. "machine learning") : on
-       vérifie que les mots de l'expression apparaissent à des positions
-       consécutives dans le texte (position(mot_i) + 1 == position(mot_i+1)),
-       pas seulement que les deux mots sont présents quelque part dans
-       l'article.
-    """
+    dans une colonne index_inverse_compte (JSON : {mot: [positions]})."""
     if not index_json_str:
         return
     try:
@@ -245,44 +169,14 @@ def extraire_mots(index_json_str, cible):
     except (json.JSONDecodeError, TypeError):
         return
 
-    # Normalisation une seule fois : mot -> ensemble de positions (utile pour
-    # la détection rapide des expressions composées ci-dessous).
-    positions_par_mot = {}
     for mot, positions in index_inverse.items():
         mot_normalise = mot.lower().strip()
-        if isinstance(positions, list):
-            positions_par_mot[mot_normalise] = set(positions)
-        else:
-            positions_par_mot[mot_normalise] = {0}
-
-    # --- 1) Mots-clés simples (1 mot), filtrés par le référentiel + STOPWORDS
-    for mot_normalise, positions in positions_par_mot.items():
-        if mot_normalise in STOPWORDS:
+        if len(mot_normalise) < 4 or mot_normalise in STOPWORDS:
             continue
-        if mot_normalise not in MOTS_CLES_SIMPLES:
+        if not mot_normalise.replace("-", "").isalpha():
             continue
-        poids = len(positions)
+        poids = len(positions) if isinstance(positions, list) else 1
         cible[mot_normalise] = cible.get(mot_normalise, 0) + poids
-
-    # --- 2) Expressions composées du référentiel (bi-grammes, tri-grammes...)
-    for mots_phrase, phrase_originale, _categorie in PHRASES_CLES:
-        positions_premier_mot = positions_par_mot.get(mots_phrase[0])
-        if not positions_premier_mot:
-            continue
-
-        occurrences = 0
-        for position_depart in positions_premier_mot:
-            trouve = True
-            for decalage, mot_suivant in enumerate(mots_phrase[1:], start=1):
-                positions_mot_suivant = positions_par_mot.get(mot_suivant)
-                if not positions_mot_suivant or (position_depart + decalage) not in positions_mot_suivant:
-                    trouve = False
-                    break
-            if trouve:
-                occurrences += 1
-
-        if occurrences:
-            cible[phrase_originale] = cible.get(phrase_originale, 0) + occurrences
 
 
 def bornes_du_mois(mois):
